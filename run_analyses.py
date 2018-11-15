@@ -42,25 +42,34 @@ def group_level_analyses(data_folder,conditions):
 	hsas_gl = HexagonalSaccadeAdaptationGroupLevelAnalyses(subjects =subjects, aliases=aliases,data_folder = data_folder, output_dir=output_dir,block_trial_indices=block_trial_indices,saccade_amp=saccade_amp,n_directions=n_directions,up_gain=up_gain,down_gain=down_gain,screen_res=screen_res)
 
 	# Figure 2:
-	hsas_gl.plot_saccade_latencies()
+	# hsas_gl.plot_saccade_latencies()
 
 	# Figure 3:
-	hsas_gl.plot_adaptation()
+	# hsas_gl.plot_adaptation()
 
 	# Figure 4:
-	hsas_gl.fit_timescale_to_adaptation(reps=int(1e5))# this takes a while - reduce reps if not enough computing time is available
-	hsas_gl.plot_block_jumps()
+	# hsas_gl.fit_timescale_to_adaptation(reps=int(1e5))# this takes a while - reduce reps if not enough computing time is available
+	# hsas_gl.plot_block_jumps()
 
 	#Figure 5:
-	hsas_gl.plot_fit_results(fit_learning_parameters=False)
-	hsas_gl.plot_fit_results(fit_learning_parameters=True)
+	# hsas_gl.plot_fit_results(fit_learning_parameters=False)
+	# hsas_gl.plot_fit_results(fit_learning_parameters=True)
 	
 	#Figure 6:
-	hsas_gl.compare_fit_gains(fit_learning_parameters=False)
-	hsas_gl.compare_fit_gains(fit_learning_parameters=True)
+	# hsas_gl.compare_fit_gains(fit_learning_parameters=False)
+	# hsas_gl.compare_fit_gains(fit_learning_parameters=True)
 
 	# Figure 7:
-	hsas_gl.plot_seen_reports()
+	# hsas_gl.plot_seen_reports()
+
+	# Figure 8:
+	# hsas_gl.plot_adaptation(measure='velocity')
+	# hsas_gl.plot_adaptation(measure='duration')
+	# hsas_gl.plot_block_jumps(measure='velocity')
+	# hsas_gl.plot_block_jumps(measure='duration')
+	hsas_gl.plot_avg_adapt(measure='amplitude')
+	hsas_gl.plot_avg_adapt(measure='velocity')
+	hsas_gl.plot_avg_adapt(measure='duration')
 
 
 def main():

@@ -175,16 +175,32 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
                     valid_trials = self.CU.trial_selection(this_s_fn,self.block_trial_indices, alias,bi=i,amplitudes=this_block_data)
                     this_block_data[~valid_trials] = np.nan
 
+                    # add durations and velocity
+                    durations = np.array([sv for sv in saccade_table['expanded_duration'][(saccade_table['block'] == i)]]).astype('float32')
+                    velocities = np.array([sv for sv in saccade_table['peak_velocity'][(saccade_table['block'] == i)]])
+
                     # define baseline
                     if i == 0:
-                        n_trials = len(this_block_data)/self.n_directions
-                        baseline_dirs = np.nanmedian(np.reshape(this_block_data,(-1,self.n_directions)),axis=0)
-                    reps = len(this_block_data)/self.n_directions
-                    baseline = np.tile(baseline_dirs,reps)
-                    baseline[np.isnan(baseline)]=0
+                        n_trials = this_block_n_trials/self.n_directions
+                        baseline_per_dir = np.nanmedian(np.reshape(this_block_data,(-1,self.n_directions)),axis=0)
+                        baseline_per_dir_vel = np.nanmedian(np.reshape(velocities,(-1,self.n_directions)),axis=0)
+                        baseline_per_dir_dur = np.nanmedian(np.reshape(durations,(-1,self.n_directions)),axis=0)
 
+                    reps = this_block_n_trials/self.n_directions
+                    # amplitude baseline
+                    baseline = np.tile(copy.copy(baseline_per_dir),reps)
+                    baseline[np.isnan(baseline)]=0
+                    # velocity baseline
+                    baseline_vel= np.tile(copy.copy(baseline_per_dir_vel),reps)
+                    baseline_vel[np.isnan(baseline_vel)]=0
+                    # duration baseline
+                    baseline_dur = np.tile(copy.copy(baseline_per_dir_dur),reps)
+                    baseline_dur[np.isnan(baseline_dur)]=0                        
+                    
                     # now apply the baseline correction
-                    this_block_data /= baseline          
+                    this_block_data /= baseline 
+                    velocities /= baseline_vel         
+                    durations /= baseline_dur
 
                     # compute moving average
                     ma_steps = self.n_directions
@@ -194,6 +210,8 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
                     else:
                         data_to_fit = this_block_data
                     ma_y = np.array([np.nanmean(data_to_fit[ti:ti+ma_steps]) for ti in range(len(data_to_fit)-ma_steps+1)])
+                    ma_y_vel = np.array([np.nanmean(velocities[ti:ti+ma_steps]) for ti in range(len(velocities)-ma_steps+1)])
+                    ma_y_dur = np.array([np.nanmean(durations[ti:ti+ma_steps]) for ti in range(len(durations)-ma_steps+1)])
                     ma_x = np.linspace(0,len(this_block_data),len(ma_y))                       
 
                     # save data to dict
@@ -205,6 +223,12 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
                     seen = (parameters['seen'][self.block_trial_indices[i]]+1)/2
                     seen[~valid_trials] = np.nan
                     self.all_data[alias][s.initials][i]['seen'] = seen
+
+                    # add duration and velocity
+                    self.all_data[alias][s.initials][i]['velocity'] = velocities
+                    self.all_data[alias][s.initials][i]['ma_y_vel'] = ma_y_vel
+                    self.all_data[alias][s.initials][i]['duration'] = durations
+                    self.all_data[alias][s.initials][i]['ma_y_dur'] = ma_y_dur
 
                     # and add saccade onset latency
                     # phase 3 was start of saccade polling, trial phase 4 was detection of saccade and stepping target
@@ -300,13 +324,24 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
         f.savefig(os.path.join(figdir,'latencies.pdf'))
         pl.close()
 
-    def plot_adaptation(self):
+    def plot_adaptation(self,measure='amplitude'):
         
         if not hasattr(self, 'all_data'):
             self.get_data()
 
+
         figdir = os.path.join(self.plot_dir,'Fig3')
         if not os.path.isdir(figdir): os.mkdir(figdir)
+
+        if measure == 'amplitude':
+            mindex = 'ma_y'
+            save_suffix = ''
+        elif measure == 'duration':
+            mindex = 'ma_y_dur'
+            save_suffix = '_dur'
+        elif measure == 'velocity':
+            mindex = 'ma_y_vel'
+            save_suffix = '_vel'
 
         # for subi,subject in enumerate([self.subjects[si].initials for si in range(len(self.subjects))]+['avg']):
         for subi,subject in enumerate(['avg']):#[self.subjects[si].initials for si in range(len(self.subjects))]+['avg']):
@@ -329,7 +364,7 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
                         if subject == 'avg':
                             # this_block_data = np.nanmean([self.all_data[alias][sub.initials][bi]['data']  for sub in self.subjects],axis=0)
                             x_data = np.array([self.all_data[alias][sub.initials][bi]['ma_x'] for sub in self.subjects])
-                            y_data = np.array([self.all_data[alias][sub.initials][bi]['ma_y'] for sub in self.subjects])
+                            y_data = np.array([self.all_data[alias][sub.initials][bi][mindex] for sub in self.subjects])
                             this_block_x = np.nanmean(x_data,axis=0)
                             this_block_y = np.nanmean(y_data,axis=0)
                             this_block_se = np.nanstd(y_data,axis=0)/np.sqrt(len(self.subjects)-1)*stats.t.ppf(1-0.025, len(self.subjects)-1)
@@ -338,8 +373,13 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
                             pl.fill_between(tp+this_block_x,np.ravel([this_block_y+this_block_se]),np.ravel([this_block_y-this_block_se]),color=colors[bi],alpha=.2)
                             pl.plot(tp+this_block_x,this_block_y,lw=1,c=colors[bi],mec=colors[bi])
 
+                            # if measure == 'amplitude':
                             ylims = [.75,1.15]
-
+                            # elif measure == 'duration':
+                            #     ylims = [0,5]
+                            #     # ylims = [50,75]
+                            # elif measure == 'velocity':
+                            #     ylims = [.6,1.25]
                         else:
                             this_block_data = (self.all_data[alias][subject][bi]['data'] )
                             ma_x = self.all_data[alias][subject][bi]['ma_x']
@@ -358,18 +398,26 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
                             pl.xticks([])
                         
                         # if bi == 0:
-                        pl.yticks([ylims[0],1,ylims[1]])                            
+                        if measure == 'amplitude':
+                            pl.yticks([ylims[0],1,ylims[1]])   
+                            pl.ylabel('saccade gain') 
+                        elif measure == 'velocity':
+                            pl.yticks([ylims[0],1 ,ylims[1]]) 
+                            pl.ylabel('velocity gain') 
+                        elif measure == 'duration':
+                            pl.yticks([ylims[0],1 ,ylims[1]]) 
+                            pl.ylabel('duration gain') 
+
                         # else:
                             # pl.yticks([])
 
                         if (ai==1):
-                            pl.ylabel('saccade gain')
                             pl.xlabel('trial #')
 
                         sns.despine(offset=2)
 
                 pl.tight_layout()
-                pl.savefig(os.path.join(figdir,'%s_adaptation_sub_%s.pdf'%(alias_combo[0].split('_')[-1],subject)))
+                pl.savefig(os.path.join(figdir,'%s_adaptation_sub_%s%s.pdf'%(alias_combo[0].split('_')[-1],subject,save_suffix)))
                 pl.close()
 
     def fit_timescale_to_adaptation(self,reps=int(1e4),block_idx = 1):
@@ -590,10 +638,176 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
         pl.savefig(os.path.join(figdir,'timescale_diffs.pdf'%()))
         pl.close()    
 
-    def plot_block_jumps(self):
+    def plot_avg_adapt(self,measure='amplitude',n_trials =16):
 
         if not hasattr(self, 'all_data'):
             self.get_data()
+
+        def get_indices(measure):
+
+            if measure == 'amplitude':
+                mstring = 'data'
+                save_suffix = ''
+            elif measure == 'duration':
+                save_suffix = '_dur'
+                mstring = measure
+            elif measure == 'velocity':
+                save_suffix = '_vel'
+                mstring = measure
+            return save_suffix,mstring
+
+
+        figdir = os.path.join(self.plot_dir,'Fig4')
+        if not os.path.isdir(figdir): os.mkdir(figdir)
+
+        if measure in ['velocity','duration']:
+            # do anova
+            for aii, alias_combo in enumerate([['react_downup','scanning_downup'],['react_updown','scanning_updown']]):
+                    df = {key: [] for key in ['subject','condition','data','main','measure']}
+                    for m in ['velocity','duration']:
+                        save_suffix,mstring = get_indices(m)
+
+                        for subi,subject in enumerate([self.subjects[si].initials for si in range(len(self.subjects))]):
+                            for alias in alias_combo:
+                                for dtype in ['data','baseline']:
+                                    if dtype == 'data':
+                                        # get block 1 data
+                                        # df['data'].append(self.all_data[alias][subject][1][mindex][-1]-1)
+                                        df['data'].append(np.nanmedian(self.all_data[alias][subject][1][mstring][:-n_trials]-1))
+                                        df['main'].append(1)
+                                    elif dtype == 'baseline':
+                                        # get block 1 data
+                                        df['data'].append(0)
+                                        df['main'].append(0)                                  
+                                    df['subject'].append(subi)
+                                    df['condition'].append(alias.split('_')[0])
+                                    df['measure'].append(m)
+
+
+                    if 'updown' in alias:
+                        direction = 'up'
+                    elif 'downup' in alias:
+                        direction = 'down'                      
+                    print('\n\n\n gain-%s \n\n\n '%(direction))
+                    # # let's put it in a df
+                    import pyvttbl as pt
+                    df = pt.DataFrame(df)
+                    aov = df.anova('data', sub='subject', wfactors=['condition','main','measure'])
+                    print(aov)
+
+        else:
+
+            # do anova
+            df = {key: [] for key in ['subject','condition','data','direction']}
+            for aii, alias_combo in enumerate([['react_downup','scanning_downup'],['react_updown','scanning_updown']]):
+                    save_suffix,mstring = get_indices(measure)
+                    for subi,subject in enumerate([self.subjects[si].initials for si in range(len(self.subjects))]):
+                        for alias in alias_combo:
+                                # get block 1 data
+                                # df['data'].append(self.all_data[alias][subject][1][mindex][-1]-1)
+
+                                if 'updown' in alias:
+                                    df['direction'].append('up')
+                                    df['data'].append(np.nanmedian(self.all_data[alias][subject][1][mstring][:-n_trials]-1))
+                                elif 'downup' in alias:
+                                    df['direction'].append('down')
+                                    # inver sign of data when down (to equate to up)
+                                    df['data'].append(-np.nanmedian(self.all_data[alias][subject][1][mstring][:-n_trials]-1))
+                                df['subject'].append(subi)
+                                df['condition'].append(alias.split('_')[0])
+
+                     
+            print('\n\n\n amplitude anova \n\n\n ')
+            # # let's put it in a df
+            import pyvttbl as pt
+            df = pt.DataFrame(df)
+            aov = df.anova('data', sub='subject', wfactors=['condition','direction'])
+            print(aov)            
+        
+        # reset this
+        save_suffix,mstring = get_indices(measure)
+
+        # create plot
+        for aii, alias_combo in enumerate([['react_downup','scanning_downup'],['react_updown','scanning_updown']]):
+            f = pl.figure(figsize=(1.25,1.5))
+            s = f.add_subplot(111)
+            pl.axhline(0,color='k',ls='--',lw=0.5)
+            
+            pl.title(measure)
+            # pl.title(['gain down' if 'downup' in alias_combo[0] else 'gain up'][0])
+
+            for ai, alias in enumerate(alias_combo):
+                color = ['orange','c'][np.where(alias.split('_')[0]==np.array(['react','scanning']))[0][0]]
+
+
+                jumps = []
+                for subi,subject in enumerate([self.subjects[si].initials for si in range(len(self.subjects))]):
+                    
+                    # get block 1 data
+                    # ma_y1 = self.all_data[alias][subject][1][mindex]
+
+                    # compute jump
+                    # start_block_1 = 1
+                    # end_block_1 = ma_y1[-1]
+                    # jump = end_block_1-start_block_1
+                    jump = np.nanmedian(self.all_data[alias][subject][1][mstring][:-n_trials]-1)
+
+                    jumps.append(jump)
+               
+                jumps = np.array(jumps)
+                jump_mean = np.nanmean(jumps)
+                ci = sms.DescrStatsW(jumps[~np.isnan(jumps)]).tconfint_mean()
+
+                t,p = sp.stats.ttest_1samp(jumps[~np.isnan(jumps)],0)
+                if p >.05:
+                    fill_color = 'w'
+                    edge_color = color
+                else:
+                    fill_color = color
+                    edge_color = 'w'
+
+                pl.plot([ai,ai],ci,color=color,lw=2)
+                pl.plot(ai,jump_mean,'o',color=fill_color,mec=edge_color)
+            
+            # pl.yticks([])
+            pl.xlim(-1,2)
+            pl.xticks([])
+            if measure == 'amplitude':
+                maxy = 0.15
+            else:
+                maxy = 0.15
+
+            # if aii == 0:
+            pl.yticks(np.linspace(-maxy,maxy,3))
+            pl.ylabel(r'$\Delta$ gain')
+            # else:
+                # pl.yticks([])
+            pl.ylim(-maxy,maxy)
+
+            # from matplotlib.ticker import MaxNLocator
+            # s.yaxis.set_major_locator(MaxNLocator(5))
+            # pl.locator_params(axis='y', nticks=6)
+            sns.despine(offset=2)
+
+            pl.tight_layout()
+            pl.savefig(os.path.join(figdir,'adapt_jumps_%s%s.pdf'%(alias_combo,save_suffix)))
+            pl.close()
+
+
+    def plot_block_jumps(self,measure='amplitude'):
+
+        if not hasattr(self, 'all_data'):
+            self.get_data()
+
+        if measure == 'amplitude':
+            mindex = 'ma_y'
+            save_suffix = ''
+        elif measure == 'duration':
+            mindex = 'ma_y_dur'
+            save_suffix = '_dur'
+        elif measure == 'velocity':
+            mindex = 'ma_y_vel'
+            save_suffix = '_vel'
 
         figdir = os.path.join(self.plot_dir,'Fig4')
         if not os.path.isdir(figdir): os.mkdir(figdir)
@@ -612,9 +826,9 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
                 for subi,subject in enumerate([self.subjects[si].initials for si in range(len(self.subjects))]):
                     
                     # get block 1 data
-                    ma_y1 = self.all_data[alias][subject][1]['ma_y']
+                    ma_y1 = self.all_data[alias][subject][1][mindex]
                     # get block 2 data
-                    ma_y2 = self.all_data[alias][subject][2]['ma_y']
+                    ma_y2 = self.all_data[alias][subject][2][mindex]
 
                     # compute jump
                     end_block_1 = np.nanmedian(ma_y1[-1])
@@ -654,7 +868,7 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
             sns.despine(offset=2)
 
         pl.tight_layout()
-        pl.savefig(os.path.join(figdir,'jumps.pdf'))
+        pl.savefig(os.path.join(figdir,'jumps%s.pdf'%save_suffix))
         pl.close()
 
 
@@ -671,10 +885,10 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
                 for ai, alias in enumerate(alias_combo):
 
                     # get block 1 data
-                    ma_y1 =  self.all_data[alias][subject][1]['ma_y']
+                    ma_y1 =  self.all_data[alias][subject][1][mindex]
 
                     # get block 2 data
-                    ma_y2 =  self.all_data[alias][subject][2]['ma_y']
+                    ma_y2 =  self.all_data[alias][subject][2][mindex]
 
                     # now get jump between blocks
                     end_block_1 = np.nanmean(ma_y1[-1])
@@ -716,7 +930,7 @@ class HexagonalSaccadeAdaptationGroupLevelAnalyses(object):
             sns.despine(offset=2)
 
         pl.tight_layout()#w_pad = 0)
-        pl.savefig(os.path.join(figdir,'jump_diffs.pdf'))
+        pl.savefig(os.path.join(figdir,'jump_diffs%s.pdf'%save_suffix))
         pl.close()
 
     def fit_smith_model(self,block_idx = 1,
